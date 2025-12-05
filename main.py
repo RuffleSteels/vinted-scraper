@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
                 if 8 <= hour < 24:
                     for item in ITEM:
-                        scrape_category(browser, item, pages=6)
+                        scrape_category(browser, item, pages=15)
                     sys.exit(0)
                     time.sleep(10)
                 else:

@@ -9,6 +9,7 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 import numpy as np
 import torchvision.models as models
+from torchvision import transforms
 
 if torch.backends.mps.is_available():
     device = "mps"
@@ -19,48 +20,30 @@ elif torch.cuda.is_available():
 else:
     device = "cpu"
     print("Using CPU")
-
-# 1️⃣ Dataset
 class ImagePriceDataset(Dataset):
-    def __init__(self, X, y):
+    def __init__(self, X, y, transform=None):
         self.X = X
         self.y = y
+        self.transform = transform
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+        img = self.X[idx]
 
-# 2️⃣ Model
-# class CNNRegressor(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.features = nn.Sequential(
-#             nn.Conv2d(3, 32, kernel_size=3, padding=1),  # [32,224,224]
-#             nn.ReLU(),
-#             nn.MaxPool2d(2),                             # [32,112,112]
-#
-#             nn.Conv2d(32, 64, kernel_size=3, padding=1), # [64,112,112]
-#             nn.ReLU(),
-#             nn.MaxPool2d(2),                             # [64,56,56]
-#
-#             nn.Conv2d(64, 128, kernel_size=3, padding=1),# [128,56,56]
-#             nn.ReLU(),
-#             nn.MaxPool2d(2),                             # [128,28,28]
-#         )
-#         self.regressor = nn.Sequential(
-#             nn.Flatten(),
-#             nn.Linear(128*28*28, 512),
-#             nn.ReLU(),
-#             nn.Linear(512, 1)  # single output for regression
-#         )
-#
-#     def forward(self, x):
-#         x = self.features(x)
-#         x = self.regressor(x)
-#         return x.squeeze(1)  # shape [batch]
-#
+        # Convert CHW → HWC if it's a tensor from your saved dataset
+        if isinstance(img, torch.Tensor):
+            img = img.permute(1, 2, 0).numpy()
+
+        # Transform: PIL → CHW tensor
+        if self.transform:
+            img = self.transform(img)
+
+        # label should be float32
+        label = float(self.y[idx])
+
+        return img, label
 class CNNRegressor(nn.Module):
     def __init__(self):
         super().__init__()
@@ -69,11 +52,17 @@ class CNNRegressor(nn.Module):
         )
 
         # Replace final FC with regression head
+
         self.backbone.fc = nn.Sequential(
             nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 1)
+            nn.BatchNorm1d(256),
+            nn.GELU(),
+
+            nn.Linear(256, 64),
+            nn.BatchNorm1d(64),
+            nn.GELU(),
+
+            nn.Linear(64, 1)
         )
 
     def forward(self, x):
@@ -97,8 +86,31 @@ if __name__ == "__main__":
         X, y, test_size=0.15, random_state=42
     )
 
-    train_dataset = ImagePriceDataset(X_train, y_train)
-    test_dataset  = ImagePriceDataset(X_test, y_test)
+
+    train_tf = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),
+        transforms.RandomResizedCrop(224, scale=(0.6, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25),
+        transforms.RandomGrayscale(p=0.1),
+        transforms.GaussianBlur(3),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
+
+    test_tf = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),
+
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
+
+    train_dataset = ImagePriceDataset(X_train, y_train, transform=train_tf)
+    test_dataset = ImagePriceDataset(X_test, y_test, transform=test_tf)
 
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
     test_loader  = DataLoader(test_dataset,  batch_size=16, shuffle=False)
@@ -123,7 +135,10 @@ if __name__ == "__main__":
         with torch.no_grad():
             for batch_X, batch_y in test_loader:
                 batch_X = batch_X.to(device)
-                outputs = model(batch_X).cpu().numpy()
+
+                outputs = model(batch_X).cpu()  # tensor
+                outputs = torch.expm1(outputs)  # undo log1p
+                outputs = outputs.numpy()  # convert AFTER expm1
 
                 preds.extend(outputs.flatten().tolist())
                 trues.extend(batch_y.numpy().flatten().tolist())
@@ -180,28 +195,98 @@ if __name__ == "__main__":
     # -----------------------------
     # 🏋️ TRAINING LOOP (interactive)
     # -----------------------------
-    epoch = 0
+    criterion = nn.SmoothL1Loss()
 
-    while True:
-        epoch += 1
+    optimizer = optim.Adam([
+        {"params": model.backbone.fc.parameters(), "lr": 1e-3},
+        {"params": model.backbone.layer2.parameters(), "lr": 5e-5},
+        {"params": model.backbone.layer3.parameters(), "lr": 5e-5},
+        {"params": model.backbone.layer4.parameters(), "lr": 5e-5},
+    ], weight_decay=1e-4)
+
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+
+    for param in model.backbone.parameters():
+        param.requires_grad = False
+    for param in model.backbone.fc.parameters():
+        param.requires_grad = True
+
+    print("\n🔒 Stage 1: Training regression head only...\n")
+    for epoch in range(15):  # 5–10 is good
+
         model.train()
         running_loss = 0
 
         for batch_X, batch_y in train_loader:
             batch_X = batch_X.to(device)
-            batch_y = batch_y.to(device).float().squeeze(1)
-
+            batch_y = batch_y.float().to(device)
             optimizer.zero_grad()
-            outputs = model(batch_X)
-            loss = criterion(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
+            # Mixup
+            lam = np.random.beta(0.4, 0.4)
+            perm = torch.randperm(batch_X.size(0))
+            mixed_X = lam * batch_X + (1 - lam) * batch_X[perm]
+            mixed_y = lam * batch_y + (1 - lam) * batch_y[perm]
 
+            # Label noise (target smoothing)
+
+            mixed_y = mixed_y + torch.randn_like(mixed_y) * 0.01
+
+            outputs = model(mixed_X)
+            y_log = torch.log1p(mixed_y)
+            weights = 1 / (mixed_y + 1e-6)
+            loss = criterion(outputs, y_log)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+
+            optimizer.step()
             running_loss += loss.item() * batch_X.size(0)
 
         epoch_loss = running_loss / len(train_dataset)
-        print(f"Epoch {epoch} - Loss: {epoch_loss:.4f}")
+        print(f"[Stage 1] Epoch {epoch + 1} - Loss: {epoch_loss:.4f}")
+
+        scheduler.step()
+
+    for param in model.backbone.layer2.parameters():
+        param.requires_grad = True
+    for param in model.backbone.layer3.parameters():
+        param.requires_grad = True
+    for param in model.backbone.layer4.parameters():
+        param.requires_grad = True
+
+    print("\n🔓 Stage 2: Fine-tuning ResNet deeper layers...\n")
+    for epoch in range(30):  # fine-tune for longer
+        model.train()
+        running_loss = 0
+
+        for batch_X, batch_y in train_loader:
+            batch_X = batch_X.to(device)
+
+            batch_y = batch_y.float().to(device)
+
+            optimizer.zero_grad()
+            # Mixup
+            lam = np.random.beta(0.4, 0.4)
+            perm = torch.randperm(batch_X.size(0))
+            mixed_X = lam * batch_X + (1 - lam) * batch_X[perm]
+            mixed_y = lam * batch_y + (1 - lam) * batch_y[perm]
+
+            # Label noise (target smoothing)
+            mixed_y = mixed_y + torch.randn_like(mixed_y) * 0.01
+
+            outputs = model(mixed_X)
+            y_log = torch.log1p(mixed_y)
+            weights = 1 / (mixed_y + 1e-6)
+            loss = criterion(outputs, y_log)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+
+            optimizer.step()
+            running_loss += loss.item() * batch_X.size(0)
+
+        epoch_loss = running_loss / len(train_dataset)
+        print(f"[Stage 2] Epoch {epoch + 1} - Loss: {epoch_loss:.4f}")
+
+        scheduler.step()
 
         torch.save(model.state_dict(), MODEL_PATH)
-        print(f"Saved model checkpoint to {MODEL_PATH}")
-
+        print(f"💾 Saved model checkpoint to {MODEL_PATH}")
