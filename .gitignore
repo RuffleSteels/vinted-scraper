@@ -1,0 +1,8 @@
+data
+images
+venv
+*.csv
+*.pt
+*.pkl
+/data/
+/images/
