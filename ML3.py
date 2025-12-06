@@ -4,8 +4,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 from Scraper.config import Y_STD, Y_MEAN
-
-from PIL import Image, ImageTk
+from PIL import Image
 import numpy as np
 import torchvision.models as models
 from torchvision import transforms
@@ -120,6 +119,7 @@ if __name__ == "__main__":
     if RUN_TEST_ONLY:
         import tkinter as tk
         from tkinter import ttk
+        from PIL import ImageTk
         print("\n⚡ Test-only mode enabled. Loading model and evaluating...\n")
         model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
         model.eval()
