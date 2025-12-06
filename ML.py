@@ -11,7 +11,7 @@ import numpy as np
 import torchvision.models as models
 from torchvision import transforms
 
-if torch.backends.mps.is_available():
+if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     device = "mps"
     print("Using Apple Silicon MPS GPU")
 elif torch.cuda.is_available():
