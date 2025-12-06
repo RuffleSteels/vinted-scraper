@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from bs4 import BeautifulSoup
 
+from ML import CNNRegressor
 # from ML import CNNRegressor
 from Scraper.utils import *
 from Scraper.config import *
@@ -68,19 +69,25 @@ def scrape_page(page, url, isPred=True):
 
             print(f"New item: {title}, Price: £{price_float}", href)
             seen_ids.add(item_id)
-            dump_price(item_id, ((price_float - Y_MEAN) / Y_STD))
+            dump_price(item_id, price_float)
             dump_seen_ids(seen_ids)
 
             # if isPred:
-            #     image_tensor = url_to_tensor(src)
-            #     image_tensor = image_tensor.to(device)
-            #     with torch.no_grad():
-            #         pred_price = model(image_tensor.unsqueeze(0)).item()
+            # image_tensor = url_to_tensor(src)
+            # image_tensor = image_tensor.to(device)
             #
-            #     print(f"Predicted price: {(pred_price * Y_STD + Y_MEAN)}")
+            # with torch.no_grad():
+            #     pred_log1p = model(image_tensor.unsqueeze(0))  # model output
+            #     pred_log1p = pred_log1p.item()  # scalar
+            #
+            #     # undo standardization if you applied (optional)
+            #     pred_log1p = pred_log1p
+            #
+            #     # undo log1p
+            #     pred_price = torch.expm1(torch.tensor(pred_log1p)).item() * Y_STD + Y_MEAN
+            #
+            # print(f"Predicted price: {pred_price}")
 
-                # value = (pred * Y_STD + Y_MEAN).item()
-            #
             #     if (value - (price_float + BUYER_PROTECTION + SHIPPING)) > price_threshold and pred < 30: # removes weird high hallucinations
             #         send_telegram(price_float, title, link_tag.get("href"), value, image_src)
 
@@ -92,7 +99,7 @@ def scrape_page(page, url, isPred=True):
 def scrape_category(browser, item_name, pages=10):
     """Scrape multiple pages for a single item."""
     for i in range(pages):
-        url = f"https://www.vinted.co.uk/catalog?order=newest_first&search_id=29086618135&time=1764965529&catalog%5B%5D=77&search_by_image_uuid=&brand_ids%5B%5D=362&page={i+1}"
+        url = f"https://www.vinted.co.uk/catalog?order=newest_first&search_id=29086618135&time=1765018788&catalog%5B%5D=77&search_by_image_uuid=&brand_ids%5B%5D=417646&page={i+1}"
         print(f"Scraping page {i+1} -> {url}")
 
         page = browser.new_page()
@@ -106,9 +113,8 @@ def scrape_category(browser, item_name, pages=10):
 
 if __name__ == "__main__":
     # model = CNNRegressor().to(device)
-
-    # Load weights
-    # model.load_state_dict(torch.load("./model1.pt", map_location=device))
+    #
+    # model.load_state_dict(torch.load("./model.pt", map_location=device))
     # model.eval()
     while True:
         print("Starting new browser session...")
@@ -118,9 +124,9 @@ if __name__ == "__main__":
             while True:
                 hour = datetime.datetime.now().hour
 
-                if 8 <= hour < 24:
+                if 0 <= hour < 24:
                     for item in ITEM:
-                        scrape_category(browser, item, pages=15)
+                        scrape_category(browser, item, pages=10)
                     sys.exit(0)
                     time.sleep(10)
                 else:

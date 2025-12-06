@@ -86,15 +86,11 @@ if __name__ == "__main__":
         X, y, test_size=0.15, random_state=42
     )
 
-
     train_tf = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
-        transforms.RandomResizedCrop(224, scale=(0.6, 1.0)),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25),
-        transforms.RandomGrayscale(p=0.1),
-        transforms.GaussianBlur(3),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
@@ -103,7 +99,6 @@ if __name__ == "__main__":
     test_tf = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
-
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
@@ -134,18 +129,22 @@ if __name__ == "__main__":
         test_images = []
         with torch.no_grad():
             for batch_X, batch_y in test_loader:
+                # Move input to device and run model
                 batch_X = batch_X.to(device)
 
-                outputs = model(batch_X).cpu()  # tensor
-                outputs = torch.expm1(outputs)  # undo log1p
-                outputs = outputs.numpy()  # convert AFTER expm1
+                # Predict log(price) → convert back to raw price
+                outputs = model(batch_X).cpu()
+                outputs = torch.expm1(outputs).clamp(min=0)
+                outputs = outputs.numpy()
 
+                # Store raw predictions and raw truth prices
                 preds.extend(outputs.flatten().tolist())
-                trues.extend(batch_y.numpy().flatten().tolist())
+                trues.extend(batch_y.numpy().astype(float).flatten().tolist())
                 test_images.extend(batch_X.cpu())
 
-        preds_scaled = [(p * Y_STD + Y_MEAN) for p in preds]
-        trues_scaled = [(t * Y_STD + Y_MEAN) for t in trues]
+        # Already raw prices — no scaling needed
+        preds_scaled = preds
+        trues_scaled = trues
 
         # Average absolute error
         abs_errors = [abs(p - t) for p, t in zip(preds_scaled, trues_scaled)]
@@ -204,15 +203,15 @@ if __name__ == "__main__":
         {"params": model.backbone.layer4.parameters(), "lr": 5e-5},
     ], weight_decay=1e-4)
 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)
 
     for param in model.backbone.parameters():
-        param.requires_grad = False
+        param.requires_grad = True
     for param in model.backbone.fc.parameters():
         param.requires_grad = True
 
     print("\n🔒 Stage 1: Training regression head only...\n")
-    for epoch in range(15):  # 5–10 is good
+    for epoch in range(8):  # 5–10 is good
 
         model.train()
         running_loss = 0
@@ -225,16 +224,12 @@ if __name__ == "__main__":
             lam = np.random.beta(0.4, 0.4)
             perm = torch.randperm(batch_X.size(0))
             mixed_X = lam * batch_X + (1 - lam) * batch_X[perm]
-            mixed_y = lam * batch_y + (1 - lam) * batch_y[perm]
 
-            # Label noise (target smoothing)
 
-            mixed_y = mixed_y + torch.randn_like(mixed_y) * 0.01
-
+            # Train on log(price)
             outputs = model(mixed_X)
-            y_log = torch.log1p(mixed_y)
-            weights = 1 / (mixed_y + 1e-6)
-            loss = criterion(outputs, y_log)
+            mixed_y_log = torch.log1p(batch_y.clamp(min=0))
+            loss = criterion(outputs, mixed_y_log)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
 
@@ -254,7 +249,7 @@ if __name__ == "__main__":
         param.requires_grad = True
 
     print("\n🔓 Stage 2: Fine-tuning ResNet deeper layers...\n")
-    for epoch in range(30):  # fine-tune for longer
+    for epoch in range(150):  # fine-tune for longer
         model.train()
         running_loss = 0
 
@@ -268,15 +263,10 @@ if __name__ == "__main__":
             lam = np.random.beta(0.4, 0.4)
             perm = torch.randperm(batch_X.size(0))
             mixed_X = lam * batch_X + (1 - lam) * batch_X[perm]
-            mixed_y = lam * batch_y + (1 - lam) * batch_y[perm]
-
-            # Label noise (target smoothing)
-            mixed_y = mixed_y + torch.randn_like(mixed_y) * 0.01
 
             outputs = model(mixed_X)
-            y_log = torch.log1p(mixed_y)
-            weights = 1 / (mixed_y + 1e-6)
-            loss = criterion(outputs, y_log)
+            mixed_y_log = torch.log1p(batch_y.clamp(min=0))
+            loss = criterion(outputs, mixed_y_log)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
 

@@ -8,6 +8,9 @@ import pickle
 from io import BytesIO
 from torchvision import transforms
 
+from Scraper.config import Y_MEAN, Y_STD
+
+
 def compile_jpeg_dataset(images_dir, csv_path, X_path="data/X_data.pt", y_path="data/y_data.pt", size=(224, 224)):
     """
     Loads all JPEGs listed in prices.csv (format: item_id,price)
@@ -45,6 +48,7 @@ def compile_jpeg_dataset(images_dir, csv_path, X_path="data/X_data.pt", y_path="
                 continue
 
             image_tensors.append(tensor)
+            print((price - Y_MEAN) / Y_STD)
             label_tensors.append(torch.tensor([price], dtype=torch.float32))
 
     if not image_tensors:
