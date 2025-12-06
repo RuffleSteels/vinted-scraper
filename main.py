@@ -13,7 +13,7 @@ import sys
 sys.stdout.reconfigure(line_buffering=True)
 print("Starting Scraper...")
 
-if torch.backends.mps.is_available():
+if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     device = "mps"
     print("Using Apple Silicon MPS GPU")
 elif torch.cuda.is_available():
