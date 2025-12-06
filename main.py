@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from bs4 import BeautifulSoup
 
-from ML import CNNRegressor
+from ML3 import CNNRegressor
 # from ML import CNNRegressor
 from Scraper.utils import *
 from Scraper.config import *
@@ -68,28 +68,25 @@ def scrape_page(page, url, isPred=True):
                 continue
 
             print(f"New item: {title}, Price: £{price_float}", href)
+
             seen_ids.add(item_id)
             dump_price(item_id, price_float)
             dump_seen_ids(seen_ids)
 
-            # if isPred:
-            # image_tensor = url_to_tensor(src)
-            # image_tensor = image_tensor.to(device)
-            #
-            # with torch.no_grad():
-            #     pred_log1p = model(image_tensor.unsqueeze(0))  # model output
-            #     pred_log1p = pred_log1p.item()  # scalar
-            #
-            #     # undo standardization if you applied (optional)
-            #     pred_log1p = pred_log1p
-            #
-            #     # undo log1p
-            #     pred_price = torch.expm1(torch.tensor(pred_log1p)).item() * Y_STD + Y_MEAN
-            #
-            # print(f"Predicted price: {pred_price}")
+            image_tensor = url_to_tensor(src)
+            image_tensor = image_tensor.to(device)
 
-            #     if (value - (price_float + BUYER_PROTECTION + SHIPPING)) > price_threshold and pred < 30: # removes weird high hallucinations
-            #         send_telegram(price_float, title, link_tag.get("href"), value, image_src)
+            with torch.no_grad():
+                outputs = model(image_tensor.unsqueeze(0)).cpu()
+                outputs = torch.expm1(outputs).clamp(min=0)
+                outputs = outputs.numpy().flatten().tolist()
+
+                print(outputs)
+            pred = outputs[0] * Y_STD + Y_MEAN
+            print(f"Predicted price: {pred}")
+
+            if (pred - (price_float + BUYER_PROTECTION + SHIPPING)) > PRICE_THRESHOLD and outputs[0]  < 30:
+                send_telegram(price_float, title, href, pred, src)
 
 
     except Exception as e:
@@ -112,10 +109,10 @@ def scrape_category(browser, item_name, pages=10):
 
 
 if __name__ == "__main__":
-    # model = CNNRegressor().to(device)
-    #
-    # model.load_state_dict(torch.load("./model.pt", map_location=device))
-    # model.eval()
+    model = CNNRegressor().to(device)
+
+    model.load_state_dict(torch.load("./model.pt", map_location=device))
+    model.eval()
     while True:
         print("Starting new browser session...")
         p, browser, context, page = get_driver()
@@ -126,7 +123,7 @@ if __name__ == "__main__":
 
                 if 0 <= hour < 24:
                     for item in ITEM:
-                        scrape_category(browser, item, pages=10)
+                        scrape_category(browser, item, pages=1)
                     sys.exit(0)
                     time.sleep(10)
                 else:

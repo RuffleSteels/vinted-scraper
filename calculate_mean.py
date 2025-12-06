@@ -8,7 +8,8 @@ def read_prices_and_stats(csv_path):
         for row in reader:
             if len(row) >= 2:
                 try:
-                    values.append(float(row[1]))
+                    if (float(row[1]) <= 40):
+                        values.append(float(row[1]))
                 except ValueError:
                     pass
     mean_val = statistics.mean(values) if values else None

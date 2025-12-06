@@ -66,7 +66,7 @@ if __name__ == "__main__":
     # 🔧 CONFIG
     # -----------------------------
     RUN_TEST_ONLY = True   # 👈 set to True to skip training and run test only
-    MODEL_PATH = "./asdasd.pt"
+    MODEL_PATH = "./model.pt"
     SHOW_IMAGES = True  # 👈 set True to show images during test
 
     # -----------------------------
@@ -132,7 +132,7 @@ if __name__ == "__main__":
 
                 # Predict log(price) → convert back to raw price
                 outputs = model(batch_X).cpu()
-                outputs = torch.expm1(outputs).clamp(min=0)
+                # outputs = torch.expm1(outputs).clamp(min=0)
                 outputs = outputs.numpy()
 
                 # Store raw predictions and raw truth prices
@@ -141,9 +141,9 @@ if __name__ == "__main__":
                 test_images.extend(batch_X.cpu())
 
         # Already raw prices — no scaling needed
-        preds_scaled = preds
-        trues_scaled = trues
-
+        # Scale predictions back using mean and std
+        preds_scaled = [(p * Y_STD) + Y_MEAN for p in preds]
+        trues_scaled = [(t * Y_STD) + Y_MEAN for t in trues]
         # Average absolute error
         abs_errors = [abs(p - t) for p, t in zip(preds_scaled, trues_scaled)]
         avg_abs_error = sum(abs_errors) / len(abs_errors)
@@ -210,7 +210,7 @@ if __name__ == "__main__":
             # Train on log(price)
             outputs = model(inputs)
             y_log = torch.log1p(batch_y.clamp(min=0))
-            loss = criterion(outputs, y_log)
+            loss = criterion(outputs, batch_y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
 
@@ -239,7 +239,7 @@ if __name__ == "__main__":
             # Train on log(price)
             outputs = model(inputs)
             y_log = torch.log1p(batch_y.clamp(min=0))
-            loss = criterion(outputs, y_log)
+            loss = criterion(outputs, batch_y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
 

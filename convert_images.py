@@ -47,9 +47,12 @@ def compile_jpeg_dataset(images_dir, csv_path, X_path="data/X_data.pt", y_path="
                 print(f"[WARN] Could not load {image_path}: {e}")
                 continue
 
+            if price > 40:
+                continue
+
             image_tensors.append(tensor)
             print((price - Y_MEAN) / Y_STD)
-            label_tensors.append(torch.tensor([price], dtype=torch.float32))
+            label_tensors.append(torch.tensor([(price - Y_MEAN) / Y_STD], dtype=torch.float32))
 
     if not image_tensors:
         print("[ERROR] No valid images found. Aborting.")

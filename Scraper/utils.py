@@ -104,7 +104,7 @@ def send_telegram(price, title, link, value, img_tag):
     """Sends a telegram message to a specific bot on telegram"""
     print("DEAL FOUND - DEAL FOUND - DEAL FOUND")
     print(f"HIGH VALUE: \n {title} \n Price: £{price} \n Value: £{round(value, 2)} \n {link}")
-    if price < 8:
+    if price < 15:
         value = value + SELL_MARKUP
         if value - price > 12:
             message = f"HIGH VALUE: \n {title} \n Price: £{price} \n Value: £{round(value, 2)} \n {link}"
@@ -116,11 +116,11 @@ def send_telegram(price, title, link, value, img_tag):
             message = f"LOW VALUE: \n {title} \n Price: £{price} \n Value: £{round(value, 2)} \n {link}"
 
         else:
-            return
+            message = f"IDK VALUE: \n {title} \n Price: £{price} \n Value: £{round(value, 2)} \n {link}"
 
-        # url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        # payload = {"chat_id": CHAT_ID, "text": message}
-        # requests.post(url, data=payload)
+        url = f"https://api.telegram.org/bot8552201082:AAEGd7zpkz2yGY8OQkEKpWq2n_yO3LIXqn0/sendMessage"
+        payload = {"chat_id": '8506286983', "text": message}
+        requests.post(url, data=payload)
 
 class PricePredictorResNet(nn.Module):
     def __init__(self):
