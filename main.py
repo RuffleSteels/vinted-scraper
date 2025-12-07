@@ -87,7 +87,7 @@ def scrape_page(page, url, isPred=True):
 
             with torch.no_grad():
                 outputs = model(image_tensor.unsqueeze(0)).cpu()
-                outputs = torch.expm1(outputs).clamp(min=0)
+                # outputs = torch.expm1(outputs).clamp(min=0)
                 outputs = outputs.numpy().flatten().tolist()
 
                 print(outputs)
