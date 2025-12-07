@@ -8,6 +8,7 @@ from ML3 import CNNRegressor
 # from ML import CNNRegressor
 from Scraper.utils import *
 from Scraper.config import *
+from torchvision import transforms
 
 import sys
 sys.stdout.reconfigure(line_buffering=True)
@@ -22,6 +23,14 @@ elif torch.cuda.is_available():
 else:
     device = "cpu"
     print("Using CPU")
+
+test_tf = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225]),
+])
 
 def scrape_page(page, url, isPred=True):
     """Scrape a single webpage and evaluate new products."""
@@ -74,7 +83,7 @@ def scrape_page(page, url, isPred=True):
             dump_seen_ids(seen_ids)
 
             image_tensor = url_to_tensor(src)
-            image_tensor = image_tensor.to(device)
+            image_tensor = test_tf(image_tensor.cpu()).to(device)
 
             with torch.no_grad():
                 outputs = model(image_tensor.unsqueeze(0)).cpu()
